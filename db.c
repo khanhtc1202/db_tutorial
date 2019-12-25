@@ -1,57 +1,50 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-struct InputBuffer_t {
+typedef struct {
   char* buffer;
   size_t buffer_length;
   ssize_t input_length;
-};
-typedef struct InputBuffer_t InputBuffer;
+} InputBuffer;
 
-enum ExecuteResult_t {
+typedef enum {
   EXECUTE_SUCCESS,
   EXECUTE_DUPLICATE_KEY,
-  EXECUTE_TABLE_FULL
-};
-typedef enum ExecuteResult_t ExecuteResult;
+} ExecuteResult;
 
-enum MetaCommandResult_t {
+typedef enum {
   META_COMMAND_SUCCESS,
   META_COMMAND_UNRECOGNIZED_COMMAND
-};
-typedef enum MetaCommandResult_t MetaCommandResult;
+} MetaCommandResult;
 
-enum PrepareResult_t {
+typedef enum {
   PREPARE_SUCCESS,
   PREPARE_NEGATIVE_ID,
   PREPARE_STRING_TOO_LONG,
   PREPARE_SYNTAX_ERROR,
   PREPARE_UNRECOGNIZED_STATEMENT
-};
-typedef enum PrepareResult_t PrepareResult;
+} PrepareResult;
 
-enum StatementType_t { STATEMENT_INSERT, STATEMENT_SELECT };
-typedef enum StatementType_t StatementType;
+typedef enum { STATEMENT_INSERT, STATEMENT_SELECT } StatementType;
 
-const uint32_t COLUMN_USERNAME_SIZE = 32;
-const uint32_t COLUMN_EMAIL_SIZE = 255;
-struct Row_t {
+#define COLUMN_USERNAME_SIZE 32
+#define COLUMN_EMAIL_SIZE 255
+typedef struct {
   uint32_t id;
   char username[COLUMN_USERNAME_SIZE + 1];
   char email[COLUMN_EMAIL_SIZE + 1];
-};
-typedef struct Row_t Row;
+} Row;
 
-struct Statement_t {
+typedef struct {
   StatementType type;
   Row row_to_insert;  // only used by insert statement
-};
-typedef struct Statement_t Statement;
+} Statement;
 
 #define size_of_attribute(Struct, Attribute) sizeof(((Struct*)0)->Attribute)
 
@@ -64,36 +57,32 @@ const uint32_t EMAIL_OFFSET = USERNAME_OFFSET + USERNAME_SIZE;
 const uint32_t ROW_SIZE = ID_SIZE + USERNAME_SIZE + EMAIL_SIZE;
 
 const uint32_t PAGE_SIZE = 4096;
-const uint32_t TABLE_MAX_PAGES = 100;
+#define TABLE_MAX_PAGES 100
 
-struct Pager_t {
+typedef struct {
   int file_descriptor;
   uint32_t file_length;
   uint32_t num_pages;
   void* pages[TABLE_MAX_PAGES];
-};
-typedef struct Pager_t Pager;
+} Pager;
 
-struct Table_t {
+typedef struct {
   Pager* pager;
   uint32_t root_page_num;
-};
-typedef struct Table_t Table;
+} Table;
 
-struct Cursor_t {
+typedef struct {
   Table* table;
   uint32_t page_num;
   uint32_t cell_num;
   bool end_of_table;  // Indicates a position one past the last element
-};
-typedef struct Cursor_t Cursor;
+} Cursor;
 
 void print_row(Row* row) {
   printf("(%d, %s, %s)\n", row->id, row->username, row->email);
 }
 
-enum NodeType_t { NODE_INTERNAL, NODE_LEAF };
-typedef enum NodeType_t NodeType;
+typedef enum { NODE_INTERNAL, NODE_LEAF } NodeType;
 
 /*
  * Common Node Header Layout
@@ -536,6 +525,11 @@ void read_input(InputBuffer* input_buffer) {
   input_buffer->buffer[bytes_read - 1] = 0;
 }
 
+void close_input_buffer(InputBuffer* input_buffer) {
+  free(input_buffer->buffer);
+  free(input_buffer);
+}
+
 void pager_flush(Pager* pager, uint32_t page_num) {
   if (pager->pages[page_num] == NULL) {
     printf("Tried to flush null page\n");
@@ -583,10 +577,12 @@ void db_close(Table* table) {
     }
   }
   free(pager);
+  free(table);
 }
 
 MetaCommandResult do_meta_command(InputBuffer* input_buffer, Table* table) {
   if (strcmp(input_buffer->buffer, ".exit") == 0) {
+    close_input_buffer(input_buffer);
     db_close(table);
     exit(EXIT_SUCCESS);
   } else if (strcmp(input_buffer->buffer, ".btree") == 0) {
@@ -813,7 +809,7 @@ ExecuteResult execute_insert(Statement* statement, Table* table) {
   uint32_t key_to_insert = row_to_insert->id;
   Cursor* cursor = table_find(table, key_to_insert);
 
-  void *node = get_page(table->pager, cursor->page_num);
+  void* node = get_page(table->pager, cursor->page_num);
   uint32_t num_cells = *leaf_node_num_cells(node);
 
   if (cursor->cell_num < num_cells) {
@@ -903,9 +899,6 @@ int main(int argc, char* argv[]) {
         break;
       case (EXECUTE_DUPLICATE_KEY):
         printf("Error: Duplicate key.\n");
-        break;
-      case (EXECUTE_TABLE_FULL):
-        printf("Error: Table full.\n");
         break;
     }
   }
